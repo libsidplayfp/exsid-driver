@@ -2,14 +2,14 @@
 //  exSID.c
 //	A simple I/O library for exSID/exSID+ USB
 //
-//  (C) 2015-2018 Thibaut VARENE
+//  (C) 2015-2018,2021 Thibaut VARENE
 //  License: GPLv2 - http://www.gnu.org/licenses/gpl-2.0.html
 
 /**
  * @file
  * exSID/exSID+ USB I/O library
  * @author Thibaut VARENE
- * @date 2015-2018
+ * @date 2015-2018,2021
  * @version 2.0
  *
  * This driver will control the first exSID device available.
@@ -74,7 +74,7 @@ static clkdrift_t clkdrift = 0;
 /**
  * This private structure holds hardware-dependent constants.
  */
-struct xSpriv_s {
+struct xSconsts_s {
 	unsigned int	model;			///< exSID device model in use
 	clkdrift_t	write_cycles;		///< number of SID clocks spent in write ops
 	clkdrift_t	read_pre_cycles;	///< number of SID clocks spent in read op before data is actually read
@@ -91,14 +91,14 @@ const struct {
 	const char *		desc;
 	const int		pid;
 	const int		vid;
-	const struct xSpriv_s	xsp;
+	const struct xSconsts_s	xsc;
 } xSsupported[] = {
 	{
 		/* exSID USB */
 		.desc = XS_USBDSC,
 		.pid = XS_USBPID,
 		.vid = XS_USBVID,
-		.xsp = (struct xSpriv_s){
+		.xsc = (struct xSconsts_s){
 			.model = XS_MODEL_STD,
 			.write_cycles = XS_CYCIO,
 			.read_pre_cycles = XS_CYCCHR,
@@ -114,7 +114,7 @@ const struct {
 		.desc = XSP_USBDSC,
 		.pid = XSP_USBPID,
 		.vid = XSP_USBVID,
-		.xsp = (struct xSpriv_s){
+		.xsc = (struct xSconsts_s){
 			.model = XS_MODEL_PLUS,
 			.write_cycles = XSP_CYCIO,
 			.read_pre_cycles = XSP_PRE_RD,
@@ -129,7 +129,7 @@ const struct {
 };
 
 /** Global pointer used by all the hardware access routines */
-const struct xSpriv_s * restrict xSpriv;
+const struct xSconsts_s * restrict xSconsts;
 
 static inline void _exSID_write(uint_least8_t addr, uint8_t data, int flush);
 
@@ -321,7 +321,7 @@ int exSID_init(void)
 		}
 
 		xsdbg("Trying %s...\n", xSsupported[i].desc);
-		xSpriv = &xSsupported[i].xsp;	// setting unconditionnally avoids segfaults if user code does the wrong thing.
+		xSconsts = &xSsupported[i].xsc;	// setting unconditionnally avoids segfaults if user code does the wrong thing.
 		ftdi_status = xSfw_usb_open_desc(&ftdi, xSsupported[i].vid, xSsupported[i].pid, xSsupported[i].desc, NULL);
 		if (ftdi_status >= 0) {
 			xsdbg("Opened!\n");
@@ -458,7 +458,7 @@ int exSID_clockselect(int clock)
 {
 	xsdbg("clk: %d\n", clock);
 
-	if (XS_MODEL_PLUS != xSpriv->model)
+	if (XS_MODEL_PLUS != xSconsts->model)
 		return -1;
 
 	switch (clock) {
@@ -495,7 +495,7 @@ int exSID_audio_op(int operation)
 {
 	xsdbg("auop: %d\n", operation);
 
-	if (XS_MODEL_PLUS != xSpriv->model)
+	if (XS_MODEL_PLUS != xSconsts->model)
 		return -1;
 
 	switch (operation) {
@@ -532,7 +532,7 @@ int exSID_audio_op(int operation)
  */
 void exSID_chipselect(int chip)
 {
-	clkdrift -= xSpriv->csioctl_cycles;
+	clkdrift -= xSconsts->csioctl_cycles;
 
 	xsdbg("cs: %d\n", chip);
 
@@ -553,7 +553,7 @@ int exSID_hwmodel(void)
 {
 	int model;
 
-	switch (xSpriv->model) {
+	switch (xSconsts->model) {
 		case XS_MODEL_STD:
 			model = XS_MD_STD;
 			break;
@@ -605,10 +605,10 @@ static inline void xSdelay(uint_fast32_t cycles)
 #ifdef	DEBUG
 	accdelay += cycles;
 #endif
-	while (likely(cycles >= xSpriv->mindel_cycles)) {
+	while (likely(cycles >= xSconsts->mindel_cycles)) {
 		xSoutb(XS_AD_IOCTD1, 0);
-		cycles -= xSpriv->mindel_cycles;
-		clkdrift -= xSpriv->mindel_cycles;
+		cycles -= xSconsts->mindel_cycles;
+		clkdrift -= xSconsts->mindel_cycles;
 	}
 #ifdef	DEBUG
 	accdelay -= cycles;
@@ -630,9 +630,9 @@ static void xSlongdelay(uint_fast32_t cycles)
 	uint_fast32_t delta;
 	unsigned char dummy;
 
-	flush = (XS_MODEL_STD == xSpriv->model);
+	flush = (XS_MODEL_STD == xSconsts->model);
 
-	multiple = cycles - xSpriv->ldelay_offs;
+	multiple = cycles - xSconsts->ldelay_offs;
 	delta = multiple % XS_LDMULT;
 	multiple /= XS_LDMULT;
 
@@ -679,12 +679,12 @@ void exSID_delay(uint_fast32_t cycles)
 	acccycle += cycles;
 #endif
 
-	if (unlikely(clkdrift <= xSpriv->write_cycles))	// never delay for less than a full write would need
+	if (unlikely(clkdrift <= xSconsts->write_cycles))	// never delay for less than a full write would need
 		return;	// too short
 
-	delay = clkdrift - xSpriv->write_cycles;
+	delay = clkdrift - xSconsts->write_cycles;
 
-	switch (xSpriv->model) {
+	switch (xSconsts->model) {
 #if 0	// currently breaks sidplayfp - REVIEW
 		case XS_MODEL_PLUS:
 			if (delay > XS_LDMULT) {
@@ -731,13 +731,13 @@ void exSID_clkdwrite(uint_fast32_t cycles, uint_least8_t addr, uint8_t data)
 
 	// actual write will cost write_cycles. Delay for cycles - write_cycles then account for the write
 	clkdrift += cycles;
-	if (clkdrift > xSpriv->write_cycles)
-		xSdelay(clkdrift - xSpriv->write_cycles);
+	if (clkdrift > xSconsts->write_cycles)
+		xSdelay(clkdrift - xSconsts->write_cycles);
 
-	clkdrift -= xSpriv->write_cycles;	// write is going to consume write_cycles clock ticks
+	clkdrift -= xSconsts->write_cycles;	// write is going to consume write_cycles clock ticks
 
 #ifdef	DEBUG
-	if (clkdrift >= xSpriv->mindel_cycles)
+	if (clkdrift >= xSconsts->mindel_cycles)
 		xsdbg("Impossible drift adjustment! %" PRIdFAST32 " cycles\n", clkdrift);
 	else if (clkdrift < 0)
 		accdrift += clkdrift;
@@ -746,7 +746,7 @@ void exSID_clkdwrite(uint_fast32_t cycles, uint_least8_t addr, uint8_t data)
 	/* if we are still going to be early, delay actual write by up to XS_MAXAD ticks
 	At this point it is guaranted that clkdrift will be < mindel_cycles. */
 	if (likely(clkdrift >= 0)) {
-		adj = clkdrift % (xSpriv->max_adj+1);
+		adj = clkdrift % (xSconsts->max_adj+1);
 		/* if max_adj is >= clkdrift, modulo will give the same results
 		   as the correct test:
 		   adj = (clkdrift < max_adj ? clkdrift : max_adj)
@@ -826,15 +826,15 @@ uint8_t exSID_clkdread(uint_fast32_t cycles, uint_least8_t addr)
 #endif
 
 	// actual read will happen after read_pre_cycles. Delay for cycles - read_pre_cycles then account for the read
-	clkdrift += xSpriv->read_offset_cycles;		// 2-cycle offset adjustement, see function documentation.
+	clkdrift += xSconsts->read_offset_cycles;		// 2-cycle offset adjustement, see function documentation.
 	clkdrift += cycles;
-	if (clkdrift > xSpriv->read_pre_cycles)
-		xSdelay(clkdrift - xSpriv->read_pre_cycles);
+	if (clkdrift > xSconsts->read_pre_cycles)
+		xSdelay(clkdrift - xSconsts->read_pre_cycles);
 
-	clkdrift -= xSpriv->read_pre_cycles;	// read request is going to consume read_pre_cycles clock ticks
+	clkdrift -= xSconsts->read_pre_cycles;	// read request is going to consume read_pre_cycles clock ticks
 
 #ifdef	DEBUG
-	if (clkdrift > xSpriv->mindel_cycles)
+	if (clkdrift > xSconsts->mindel_cycles)
 		xsdbg("Impossible drift adjustment! %" PRIdFAST32 " cycles", clkdrift);
 	else if (clkdrift < 0) {
 		accdrift += clkdrift;
@@ -844,7 +844,7 @@ uint8_t exSID_clkdread(uint_fast32_t cycles, uint_least8_t addr)
 
 	// if we are still going to be early, delay actual read by up to max_adj ticks
 	if (likely(clkdrift >= 0)) {
-		adj = clkdrift % (xSpriv->max_adj+1);	// see clkdwrite()
+		adj = clkdrift % (xSconsts->max_adj+1);	// see clkdwrite()
 		addr = (unsigned char)(addr | (adj << 5));	// final delay encoded in top 3 bits of address
 #ifdef	DEBUG
 		accdrift += (clkdrift - adj);
@@ -858,7 +858,7 @@ uint8_t exSID_clkdread(uint_fast32_t cycles, uint_least8_t addr)
 #endif
 
 	// after read has completed, at least another read_post_cycles will have been spent
-	clkdrift -= xSpriv->read_post_cycles;
+	clkdrift -= xSconsts->read_post_cycles;
 
 	//xsdbg("delay: %d, clkdrift: %d\n", cycles, clkdrift);
 	return _exSID_read(addr, 1);
