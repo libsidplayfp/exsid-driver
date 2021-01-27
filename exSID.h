@@ -2,7 +2,7 @@
 //  exSID.h
 //	A simple I/O library for exSID USB - interface header file
 //
-//  (C) 2015-2017 Thibaut VARENE
+//  (C) 2015-2017,2021 Thibaut VARENE
 //  License: GPLv2 - http://www.gnu.org/licenses/gpl-2.0.html
 //
 
@@ -52,22 +52,22 @@ enum {
 };
 
 // public interface
-int exSID_init(void);
-void exSID_exit(void);
+void * exSID_new(void);
+void exSID_free(void * exsid);
 
-void exSID_reset(uint_least8_t volume);
-int exSID_hwmodel(void);
-uint16_t exSID_hwversion(void);
-int exSID_clockselect(int clock);
-int exSID_audio_op(int operation);
-void exSID_chipselect(int chip);
-void exSID_delay(uint_fast32_t cycles);
-void exSID_clkdwrite(uint_fast32_t cycles, uint_least8_t addr, uint8_t data);
-uint8_t exSID_clkdread(uint_fast32_t cycles, uint_least8_t addr);
-const char * exSID_error_str(void);
+int exSID_init(void * const exsid);
+void exSID_exit(void * const exsid);
 
-#define exSID_write(addr, data)	exSID_clkdwrite(0, addr, data)
-#define exSID_read(addr)	exSID_clkdread(0, addr)
+void exSID_reset(void * const exsid, uint_least8_t volume);
+int exSID_hwmodel(void * const exsid);
+uint16_t exSID_hwversion(void * const exsid);
+int exSID_clockselect(void * const exsid, int clock);
+int exSID_audio_op(void * const exsid, int operation);
+void exSID_chipselect(void * const exsid, int chip);
+void exSID_delay(void * const exsid, uint_fast32_t cycles);
+void exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t addr, uint8_t data);
+uint8_t exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t addr);
+const char * exSID_error_str(void * const exsid);
 
 #ifdef __cplusplus
 }

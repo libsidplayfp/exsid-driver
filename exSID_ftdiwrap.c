@@ -60,8 +60,6 @@
 
 #define EXSID_INTERFACES "libftd2xx, libftdi"	// XXX TODO Should be set by configure
 
-static unsigned int dummysize = 0;	// DWORD in unsigned int
-
 #ifdef _WIN32
  static HMODULE dlhandle = NULL;
 
@@ -139,7 +137,8 @@ static int _xSfwftdi_usb_open_desc(void ** ftdi, int vid, int pid, const char * 
 #ifdef	HAVE_FTD2XX
 static int _xSfwFT_write_data(void * restrict ftdi, const unsigned char * restrict buf, int size)
 {
-	static int rval;
+	DWORD dummysize;	// DWORD in unsigned int
+	int rval;
 	if(unlikely(rval = _FT_Write(ftdi, (LPVOID)buf, size, &dummysize)))
 		return -rval;
 	else
@@ -148,7 +147,8 @@ static int _xSfwFT_write_data(void * restrict ftdi, const unsigned char * restri
 
 static int _xSfwFT_read_data(void * restrict ftdi, unsigned char * restrict buf, int size)
 {
-	static int rval;
+	DWORD dummysize;	// DWORD in unsigned int
+	int rval;
 	if (unlikely(rval = _FT_Read(ftdi, (LPVOID)buf, size, &dummysize)))
 		return -rval;
 	else
@@ -247,7 +247,7 @@ int xSfw_dlopen()
 #endif
 	// if none worked, fail.
 	{
-		xserror("No method found to access FTDI interface.\n"
+		xsdbg("No method found to access FTDI interface.\n"
 			"Are any of the following libraries installed?\n"
 			"\t" EXSID_INTERFACES);
 		return -1;
@@ -256,7 +256,7 @@ int xSfw_dlopen()
 	return 0;
 
 dlfail:
-	xserror("dlsym error: %s", dlerrorstr);
+	xsdbg("dlsym error: %s", dlerrorstr);
 	_xSfw_free_errstr(dlerrorstr);
 	xSfw_dlclose(dlhandle);
 	return -1;
@@ -278,22 +278,22 @@ int xSfw_usb_setup(void * ftdi, int baudrate, int latency)
 	if (XS_LIBFTDI == libtype) {
 		rval = _xSfw_set_baudrate(ftdi, baudrate);
 		if (rval < 0) {
-			xserror("SBR error");
+			xsdbg("SBR error");
 			goto setupfail;
 		}
 		rval = _xSfw_set_line_property(ftdi, BITS_8 , STOP_BIT_1, NONE);
 		if (rval < 0) {
-			xserror("SLP error");
+			xsdbg("SLP error");
 			goto setupfail;
 		}
 		rval = _xSfw_setflowctrl(ftdi, SIO_DISABLE_FLOW_CTRL);
 		if (rval < 0) {
-			xserror("SFC error");
+			xsdbg("SFC error");
 			goto setupfail;
 		}
 		rval = _xSfw_set_latency_timer(ftdi, latency);
 		if (rval < 0) {
-			xserror("SLT error");
+			xsdbg("SLT error");
 			goto setupfail;
 		}
 	}
@@ -303,28 +303,28 @@ int xSfw_usb_setup(void * ftdi, int baudrate, int latency)
 	if (XS_LIBFTD2XX == libtype) {
 		rval = -_FT_SetBaudRate(ftdi, baudrate);
 		if (rval < 0) {
-			xserror("SBR error");
+			xsdbg("SBR error");
 			goto setupfail;
 		}
 		rval = -_FT_SetDataCharacteristics(ftdi, FT_BITS_8, FT_STOP_BITS_1, FT_PARITY_NONE);
 		if (rval < 0) {
-			xserror("SLP error");
+			xsdbg("SLP error");
 			goto setupfail;
 		}
 		rval = -_FT_SetFlowControl(ftdi, FT_FLOW_NONE, 0, 0);
 		if (rval < 0) {
-			xserror("SFC error");
+			xsdbg("SFC error");
 			goto setupfail;
 		}
 		rval = -_FT_SetLatencyTimer(ftdi, latency);
 		if (rval < 0) {
-			xserror("SLT error");
+			xsdbg("SLT error");
 			goto setupfail;
 		}
 	}
 	else
 #endif
-		xserror("Unkown access method\n");
+		xsdbg("Unkown access method\n");
 setupfail:
 	return rval;
 }

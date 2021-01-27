@@ -41,6 +41,7 @@
 #define XS_LDOFFS	(3*XS_CYCCHR)	///< long delay loop SID cycles offset
 
 /* exSID+ hardware definitions */
+#define XSP_BUFFSZ	XS_BUFFSZ
 #define XSP_MINDEL	2		///< Smallest possible delay (with IOCTD1).
 #define	XSP_CYCIO	3		///< minimum cycles between two consecutive I/Os (addr + data)
 #define XSP_PRE_RD	2
@@ -93,8 +94,6 @@
 
 #define ERRORBUF	256
 
-#define xserror(format, ...)      snprintf(xSerrstr, ERRORBUF, "(%s) ERROR " format, __func__, ## __VA_ARGS__)
-
 #ifdef HAVE_BUILTIN_EXPECT
  #define likely(x)       __builtin_expect(!!(x), 1)
  #define unlikely(x)     __builtin_expect(!!(x), 0)
@@ -102,7 +101,5 @@
  #define likely(x)      (x)
  #define unlikely(x)    (x)
 #endif
-
-extern char xSerrstr[ERRORBUF+1];	// 256-byte max string for error message
 
 #endif /* exSID_defs_h */
