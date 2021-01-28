@@ -117,6 +117,7 @@ static int (* _ftdi_usb_open_desc)(void *, int, int, const char *, const char *)
 static int (*_FT_Write)(void *, LPVOID, int, unsigned int *);
 static int (*_FT_Read)(void *, LPVOID, int, unsigned int *);
 static int (*_FT_OpenEx)(const char *, int, void **);
+static int (*_FT_ResetDevice)(void *);
 static int (*_FT_SetBaudRate)(void *, int);
 static int (*_FT_SetDataCharacteristics)(void *, int, int, int);
 static int (*_FT_SetFlowControl)(void *, int, int, int);
@@ -214,6 +215,7 @@ int xSfw_dlopen()
 		xSfw_read_data = _xSfwFT_read_data;
 		XSFW_DLSYM(_FT_OpenEx, "FT_OpenEx");
 		xSfw_usb_open_desc = _xSfwFT_usb_open_desc;
+		XSFW_DLSYM(_FT_ResetDevice, "FT_ResetDevice");
 		XSFW_DLSYM(_FT_SetBaudRate, "FT_SetBaudRate");
 		XSFW_DLSYM(_FT_SetDataCharacteristics, "FT_SetDataCharacteristics");
 		XSFW_DLSYM(_FT_SetFlowControl, "FT_SetFlowControl");
@@ -281,6 +283,7 @@ int xSfw_usb_setup(void * ftdi, int baudrate, int latency)
 
 #ifdef	HAVE_FTDI
 	if (XS_LIBFTDI == libtype) {
+		// ftdi_usb_open_desc() performs device reset
 		rval = _xSfw_set_baudrate(ftdi, baudrate);
 		if (rval < 0) {
 			xsdbg("SBR error");
@@ -306,6 +309,11 @@ int xSfw_usb_setup(void * ftdi, int baudrate, int latency)
 #endif
 #ifdef	HAVE_FTD2XX
 	if (XS_LIBFTD2XX == libtype) {
+		rval = -_FT_ResetDevice(ftdi);
+		if (rval < 0) {
+			xsdbg("RSD error");
+			goto setupfail;
+		}
 		rval = -_FT_SetBaudRate(ftdi, baudrate);
 		if (rval < 0) {
 			xsdbg("SBR error");
