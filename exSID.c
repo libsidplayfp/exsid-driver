@@ -462,9 +462,9 @@ void exSID_exit(void * const exsid)
 
 #ifdef	EXSID_THREADED
 		xSoutb(xs, XS_AD_IOCTFV, -1);	// signal end of thread
+		thrd_join(xs->thread_output, NULL);
 		cnd_destroy(&xs->frontbuf_ready_cnd);
 		mtx_destroy(&xs->frontbuf_mtx);
-		thrd_join(xs->thread_output, NULL);
 #endif
 
 		xSfw_usb_purge_buffers(xs->ftdi); // Purge both Rx and Tx buffers
