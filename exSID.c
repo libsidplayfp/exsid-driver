@@ -24,6 +24,8 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <time.h>
 
 #ifdef	EXSID_THREADED
  #if defined(HAVE_THREADS_H)	// Native C11 threads support
@@ -127,6 +129,7 @@ struct _exsid {
 
 #ifdef	EXSID_THREADED
 	// Variables for flip buffering
+	int frontbuf_postdelay;	///< post delay applied after writing frontbuf to device, before the next write is attempted
 	int frontbuf_idx;
 	unsigned char * restrict frontbuf;
 	mtx_t frontbuf_mtx;	///< mutex protecting access to frontbuf
@@ -138,6 +141,29 @@ struct _exsid {
 };
 
 static inline void _exSID_write(struct _exsid * const xs, uint_least8_t addr, uint8_t data, int flush);
+
+/**
+ * Signal-safe nanosleep() wrapper.
+ * @param usecs requested sleep time in microseconds.
+ * @return return value of nanosleep(), with EINTR handled internally.
+ */
+static int _xSusleep(int usecs)
+{
+	struct timespec tv;
+	int ret;
+
+	tv.tv_sec = usecs / 1000000;
+	tv.tv_nsec = (usecs % 1000000) * 1000;
+
+	while (1) {
+		ret = nanosleep(&tv, &tv);
+		if (ret) {
+			if (EINTR == errno)
+				continue;
+		}
+		return ret;
+	}
+}
 
 /**
  * Returns a string describing the last recorded error.
@@ -222,6 +248,7 @@ static void xSread(struct _exsid * const xs, unsigned char * buff, int size)
 static int _exSID_thread_output(void * arg)
 {
 	struct _exsid * const xs = arg;
+	int delay;
 
 	xsdbg("thread started\n");
 	while (1) {
@@ -237,6 +264,7 @@ static int _exSID_thread_output(void * arg)
 			thrd_exit(0);
 		}
 
+		delay = xs->frontbuf_postdelay;
 		xSwrite(xs, xs->frontbuf, xs->frontbuf_idx);
 		xs->frontbuf_idx = 0;
 
@@ -244,6 +272,9 @@ static int _exSID_thread_output(void * arg)
 		// so it can only be one or the other waiting.
 		cnd_signal(&xs->frontbuf_done_cnd);
 		mtx_unlock(&xs->frontbuf_mtx);
+
+		if (unlikely(delay))
+			_xSusleep(delay);
 	}
 	return 0;	// make the compiler happy
 }
@@ -256,7 +287,7 @@ static int _exSID_thread_output(void * arg)
  * @note No drift compensation is performed on read operations.
  * @param xs exsid private pointer
  * @param byte byte to send
- * @param flush force write flush if positive, trigger thread exit if negative
+ * @param flush force write flush if positive (add usleep(flush) if >1), trigger thread exit if negative
  */
 static void xSoutb(struct _exsid * const xs, uint8_t byte, int flush)
 {
@@ -284,6 +315,7 @@ static void xSoutb(struct _exsid * const xs, uint8_t byte, int flush)
 		bufptr = xs->frontbuf;
 		xs->frontbuf = xs->backbuf;
 		xs->frontbuf_idx = xs->backbuf_idx;
+		xs->frontbuf_postdelay = (flush > 1) ? flush : 0;
 		xs->backbuf = bufptr;
 		xs->backbuf_idx = 0;
 	}
@@ -293,6 +325,8 @@ static void xSoutb(struct _exsid * const xs, uint8_t byte, int flush)
 #else	// unthreaded
 	xSwrite(xs, xs->backbuf, xs->backbuf_idx);
 	xs->backbuf_idx = 0;
+	if (unlikely(flush > 1))
+		_xSusleep(flush);
 #endif
 }
 
@@ -492,8 +526,7 @@ void exSID_exit(void * const exsid)
  * SID reset routine.
  * Performs a hardware reset on the SIDs.
  * @note since the reset procedure in firmware will stall the device,
- * reset forcefully waits for enough time before resuming execution
- * via a call to usleep();
+ * reset forcefully waits for enough time before resuming execution.
  * @param exsid exsid handle
  * @param volume volume to set the SIDs to after reset.
  */
@@ -506,8 +539,7 @@ void exSID_reset(void * const exsid, uint_least8_t volume)
 
 	xsdbg("rvol: %" PRIxLEAST8 "\n", volume);
 
-	xSoutb(xs, XS_AD_IOCTRS, 1);	// this will stall
-	usleep(100);	// sleep for 100us
+	xSoutb(xs, XS_AD_IOCTRS, 100);	// this will stall
 	_exSID_write(xs, 0x18, volume, 1);	// this only needs 2 bytes which matches the input buffer of the PIC so all is well
 
 	xs->clkdrift = 0;
@@ -518,8 +550,7 @@ void exSID_reset(void * const exsid, uint_least8_t volume)
  * exSID+ clock selection routine.
  * Selects between PAL, NTSC and 1MHz clocks.
  * @note upon clock change the hardware resync itself and resets the SIDs, which
- * takes approximately 50us: this function waits for enough time before resuming
- * execution via a call to usleep();
+ * takes approximately 50us: this function waits for enough time before resuming execution.
  * Output should be muted before execution
  * @param exsid exsid handle
  * @param clock clock selector value, see exSID.h.
@@ -539,19 +570,17 @@ int exSID_clockselect(void * const exsid, int clock)
 
 	switch (clock) {
 		case XS_CL_PAL:
-			xSoutb(xs, XSP_AD_IOCTCP, 1);
+			xSoutb(xs, XSP_AD_IOCTCP, 100);
 			break;
 		case XS_CL_NTSC:
-			xSoutb(xs, XSP_AD_IOCTCN, 1);
+			xSoutb(xs, XSP_AD_IOCTCN, 100);
 			break;
 		case XS_CL_1MHZ:
-			xSoutb(xs, XSP_AD_IOCTC1, 1);
+			xSoutb(xs, XSP_AD_IOCTC1, 100);
 			break;
 		default:
 			return -1;
 	}
-
-	usleep(100);	// sleep for 100us
 
 	xs->clkdrift = 0;	// reset drift
 
