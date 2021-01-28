@@ -192,6 +192,11 @@ int xSfw_dlopen()
 
 	char * dlerrorstr = NULL;
 
+	if (dlhandle) {
+		xsdbg("recursive dlopen()!\n");
+		return 0;
+	}
+
 #ifdef	HAVE_FTD2XX
 #ifdef _WIN32
 # define LIBFTD2XX "ftd2xx"
