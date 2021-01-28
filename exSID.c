@@ -115,7 +115,6 @@ struct _exsid {
 	const struct xSconsts_s * restrict xSconsts;
 
 	void * ftdi;
-	int ftdi_status;
 
 #ifdef	DEBUG
 	long accdrift;
@@ -188,15 +187,15 @@ const char * exSID_error_str(void * const exsid)
  */
 static inline void xSwrite(struct _exsid * const xs, const unsigned char * buff, int size)
 {
-	xs->ftdi_status = xSfw_write_data(xs->ftdi, buff, size);
+	int ret = xSfw_write_data(xs->ftdi, buff, size);
 #ifdef	DEBUG
-	if (unlikely(xs->ftdi_status < 0)) {
+	if (unlikely(ret < 0)) {
 		xsdbg("Error ftdi_write_data(%d): %s\n",
-			xs->ftdi_status, xSfw_get_error_string(xs->ftdi));
+			ret, xSfw_get_error_string(xs->ftdi));
 	}
-	if (unlikely(xs->ftdi_status != size)) {
+	if (unlikely(ret != size)) {
 		xsdbg("ftdi_write_data only wrote %d (of %d) bytes\n",
-			xs->ftdi_status, size);
+			ret, size);
 	}
 #endif
 }
@@ -210,24 +209,25 @@ static inline void xSwrite(struct _exsid * const xs, const unsigned char * buff,
  */
 static void xSread(struct _exsid * const xs, unsigned char * buff, int size)
 {
+	int ret;
 #ifdef	EXSID_THREADED
 	mtx_lock(&xs->frontbuf_mtx);
 	while (xs->frontbuf_idx)
 		cnd_wait(&xs->frontbuf_done_cnd, &xs->frontbuf_mtx);
 #endif
-	xs->ftdi_status = xSfw_read_data(xs->ftdi, buff, size);
+	ret = xSfw_read_data(xs->ftdi, buff, size);
 #ifdef	EXSID_THREADED
 	mtx_unlock(&xs->frontbuf_mtx);
 #endif
 
 #ifdef	DEBUG
-	if (unlikely(xs->ftdi_status < 0)) {
+	if (unlikely(ret < 0)) {
 		xsdbg("Error ftdi_read_data(%d): %s\n",
-			xs->ftdi_status, xSfw_get_error_string(xs->ftdi));
+			ret, xSfw_get_error_string(xs->ftdi));
 	}
-	if (unlikely(xs->ftdi_status != size)) {
+	if (unlikely(ret != size)) {
 		xsdbg("ftdi_read_data only read %d (of %d) bytes\n",
-			xs->ftdi_status, size);
+			ret, size);
 	}
 #endif
 }
@@ -408,14 +408,14 @@ int exSID_init(void * const exsid)
 
 		xsdbg("Trying %s...\n", xSsupported[i].desc);
 		xs->xSconsts = &xSsupported[i].xsc;	// setting unconditionnally avoids segfaults if user code does the wrong thing.
-		xs->ftdi_status = xSfw_usb_open_desc(&xs->ftdi, xSsupported[i].vid, xSsupported[i].pid, xSsupported[i].desc, NULL);
-		if (xs->ftdi_status >= 0) {
+		ret = xSfw_usb_open_desc(&xs->ftdi, xSsupported[i].vid, xSsupported[i].pid, xSsupported[i].desc, NULL);
+		if (ret >= 0) {
 			xsdbg("Opened!\n");
 			found = 1;
 			break;
 		}
 		else {
-			xsdbg("Failed: %d (%s)\n", xs->ftdi_status, xSfw_get_error_string(xs->ftdi));
+			xsdbg("Failed: %d (%s)\n", ret, xSfw_get_error_string(xs->ftdi));
 			if (xSfw_free)
 				xSfw_free(xs->ftdi);
 			xs->ftdi = NULL;
@@ -427,8 +427,8 @@ int exSID_init(void * const exsid)
 		return -1;
 	}
 
-	xs->ftdi_status = xSfw_usb_setup(xs->ftdi, XS_BDRATE, XS_USBLAT);
-	if (xs->ftdi_status < 0) {
+	ret = xSfw_usb_setup(xs->ftdi, XS_BDRATE, XS_USBLAT);
+	if (ret < 0) {
 		xserror(xs, "Failed to setup device");
 		return -1;
 	}
@@ -487,6 +487,7 @@ int exSID_init(void * const exsid)
 void exSID_exit(void * const exsid)
 {
 	struct _exsid * const xs = exsid;
+	int ret;
 
 	if (!exsid)
 		return;
@@ -503,10 +504,10 @@ void exSID_exit(void * const exsid)
 
 		xSfw_usb_purge_buffers(xs->ftdi); // Purge both Rx and Tx buffers
 
-		xs->ftdi_status = xSfw_usb_close(xs->ftdi);
-		if (xs->ftdi_status < 0)
+		ret = xSfw_usb_close(xs->ftdi);
+		if (ret < 0)
 			xserror(xs, "Unable to close ftdi device: %d (%s)",
-				xs->ftdi_status, xSfw_get_error_string(xs->ftdi));
+				ret, xSfw_get_error_string(xs->ftdi));
 
 #ifdef	DEBUG
 		xsdbg("mean jitter: %.2f cycle(s) over %lu I/O ops\n",
