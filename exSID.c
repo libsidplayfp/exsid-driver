@@ -462,8 +462,6 @@ int exSID_init(void * const exsid)
 	}
 #endif
 
-	xSfw_usb_purge_buffers(xs->ftdi); // Purge both Rx and Tx buffers
-
 	// Wait for device ready by trying to read FV and wait for the answer
 	// XXX Broken with libftdi due to non-blocking read :-/
 	xSoutb(xs, XS_AD_IOCTFV, 1);
@@ -502,8 +500,6 @@ void exSID_exit(void * const exsid)
 		cnd_destroy(&xs->frontbuf_ready_cnd);
 		mtx_destroy(&xs->frontbuf_mtx);
 #endif
-
-		xSfw_usb_purge_buffers(xs->ftdi); // Purge both Rx and Tx buffers
 
 		ret = xSfw_usb_close(xs->ftdi);
 		if (ret < 0)
