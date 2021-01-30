@@ -92,8 +92,6 @@
  #define xsdbg(format, ...)       /* nothing */
 #endif
 
-#define ERRORBUF	256
-
 #ifdef HAVE_BUILTIN_EXPECT
  #define likely(x)       __builtin_expect(!!(x), 1)
  #define unlikely(x)     __builtin_expect(!!(x), 0)

@@ -38,7 +38,8 @@
 #endif	// EXSID_TRHREADED
 
 #define ARRAY_SIZE(x)		(sizeof(x) / sizeof(x[0]))
-#define xserror(xs, format, ...)      snprintf(xs->xSerrstr, ERRORBUF, "(%s) ERROR " format, __func__, ## __VA_ARGS__)
+#define XS_ERRORBUF		256
+#define xserror(xs, format, ...)      snprintf(xs->xSerrstr, XS_ERRORBUF, "(%s) ERROR " format, __func__, ## __VA_ARGS__)
 
 /**
  * cycles is uint_fast32_t. Technically, clkdrift should be int_fast64_t though
@@ -136,7 +137,7 @@ struct _exsid {
 	thrd_t thread_output;
 #endif	// EXSID_THREADED
 
-	char xSerrstr[ERRORBUF+1];	// 256-byte max string for error message
+	char xSerrstr[XS_ERRORBUF+1];	// 256-byte max string for error message
 };
 
 static inline void _exSID_write(struct _exsid * const xs, uint_least8_t addr, uint8_t data, int flush);
