@@ -24,15 +24,24 @@
 // CLOCK_FREQ_NTSC = 1022727.14;
 // CLOCK_FREQ_PAL  = 985248.4;
 
+/* common definition for all hardware platforms */
+/**
+ * USB buffer multiple.
+ * Each 64-byte USB packet contains 62 user bytes. 4k buffers (the default) thus contain 3968 data bytes.
+ * For optimal throughput performance, data should be sent in chunks that are multiples of this value.
+ * See http://www.ftdichip.com/Support/Documents/AppNotes/AN232B-03_D2XXDataThroughput.pdf section 1.4
+ */
+#define	XSC_USBMOD	(4096/64*62)
+#define	XSC_USBLAT	1		///< FTDI latency: 1-255ms in 1ms increments
+#define	XSC_BUFFMS	40		///< write buffer size in milliseconds of playback (high water mark).
+
 /* exSID hardware definitions */
 #define	XS_BDRATE	2000000		///< 2Mpbs
-#define	XS_BUFFMS	40		///< write buffer size in milliseconds of playback.
 #define	XS_SIDCLK	1000000		///< 1MHz (for computation only, currently hardcoded in firmware)
 #define XS_RSBCLK	(XS_BDRATE/10)	///< RS232 byte clock. Each RS232 byte is 10 bits long due to start and stop bits
 #define	XS_CYCCHR	(XS_SIDCLK/XS_RSBCLK)	///< SID cycles between two consecutive chars
 //#define	XS_CYCCHR	((XS_SIDCLK+XS_RSBCLK-1)/XS_RSBCLK)	// ceiling
-#define XS_USBLAT	1		///< FTDI latency: 1-255ms in 1ms increments
-#define	XS_BUFFSZ	((((XS_RSBCLK/1000)*XS_BUFFMS)/62)*62)	///< Must be multiple of _62_ or USB won't be happy.
+#define	XS_BUFFSZ	((((XS_RSBCLK/1000)*XSC_BUFFMS)/XSC_USBMOD)*XSC_USBMOD)	///< Must be multiple of user data transfer size or USB won't be happy. This floors XSC_BUFFMS.
 #define	XS_LDMULT	501		///< long delay SID cycle loop multiplier
 
 #define XS_MINDEL	(XS_CYCCHR)	///< Smallest possible delay (with IOCTD1).

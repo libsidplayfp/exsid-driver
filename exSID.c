@@ -428,7 +428,7 @@ int exSID_init(void * const exsid)
 		return -1;
 	}
 
-	ret = xSfw_usb_setup(xs->ftdi, XS_BDRATE, XS_USBLAT);
+	ret = xSfw_usb_setup(xs->ftdi, XS_BDRATE, XSC_USBLAT);
 	if (ret < 0) {
 		xserror(xs, "Failed to setup device");
 		return -1;
@@ -473,7 +473,7 @@ int exSID_init(void * const exsid)
 
 #ifdef	DEBUG
 	exSID_hwversion(xs);
-	xsdbg("XS_BUFFSZ: %d bytes\n", XS_BUFFSZ);
+	xsdbg("buffer size: %zu bytes\n", xs->xSconsts->buff_size);
 #endif
 
 	return 0;
@@ -751,7 +751,7 @@ static inline void xSdelay(struct _exsid * const xs, uint_fast32_t cycles)
  * Calls to IOCTLD delay, for "very" long delays (thousands of SID clocks).
  * Requested delay @b MUST be > ldelay_offs, and for better performance,
  * the requested delay time should ideally be several XS_LDMULT and be close to
- * a multiple of XS_USBLAT milliseconds (on the exSID).
+ * a multiple of XSC_USBLAT milliseconds (on the exSID).
  * @warning polling and NOT CYCLE ACCURATE on exSID
  * @param xs exsid private pointer
  * @param cycles how many SID clocks to wait for.
@@ -949,7 +949,7 @@ static inline uint8_t _exSID_read(struct _exsid * const xs, uint_least8_t addr, 
  * This explains why reads happen a relative 2-cycle later than then should with
  * respect to writes.
  * @note The actual time the read will take to complete depends
- * on the USB bus activity and settings. It *should* complete in XS_USBLAT ms, but
+ * on the USB bus activity and settings. It *should* complete in XSC_USBLAT ms, but
  * not less, meaning that read operations are bound to introduce timing inaccuracy.
  * As such, this function is only really provided as a proof of concept but SHOULD
  * BETTER BE AVOIDED.
