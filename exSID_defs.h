@@ -50,7 +50,8 @@
 #define XS_LDOFFS	(3*XS_CYCCHR)	///< long delay loop SID cycles offset
 
 /* exSID+ hardware definitions */
-#define XSP_BUFFSZ	XS_BUFFSZ
+#define XSP_RSBCLK	666667		///< maximum byte clock at 32MHz base clock is approx 666.6kHz (1 byte every 1.5us)
+#define	XSP_BUFFSZ	((((XSP_RSBCLK/1000)*XSC_BUFFMS)/XSC_USBMOD)*XSC_USBMOD)	///< Must be multiple of user data transfer size or USB won't be happy. This floors XSC_BUFFMS.
 #define XSP_MINDEL	2		///< Smallest possible delay (with IOCTD1).
 #define	XSP_CYCIO	3		///< minimum cycles between two consecutive I/Os (addr + data)
 #define XSP_PRE_RD	2
