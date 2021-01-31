@@ -259,12 +259,6 @@ static int _exSID_thread_output(void * arg)
 		while (!xs->frontbuf_idx)
 			cnd_wait(&xs->frontbuf_ready_cnd, &xs->frontbuf_mtx);
 
-		if (unlikely(xs->frontbuf_idx < 0)) {	// exit condition
-			xsdbg("thread exiting!\n");
-			mtx_unlock(&xs->frontbuf_mtx);
-			thrd_exit(0);
-		}
-
 		delay = xs->frontbuf_postdelay;
 		xSwrite(xs, xs->frontbuf, xs->frontbuf_idx);
 		xs->frontbuf_idx = 0;
@@ -274,8 +268,14 @@ static int _exSID_thread_output(void * arg)
 		cnd_signal(&xs->frontbuf_done_cnd);
 		mtx_unlock(&xs->frontbuf_mtx);
 
-		if (unlikely(delay))
-			_xSusleep(delay);
+		if (unlikely(delay)) {
+			if (likely(delay > 0))
+				_xSusleep(delay);
+			else {	// exit condition
+				xsdbg("thread exiting!\n");
+				thrd_exit(0);
+			}
+		}
 	}
 	return 0;	// make the compiler happy
 }
@@ -310,16 +310,12 @@ static void xSoutb(struct _exsid * const xs, uint8_t byte, int flush)
 	while (xs->frontbuf_idx)
 		cnd_wait(&xs->frontbuf_done_cnd, &xs->frontbuf_mtx);
 
-	if (unlikely(flush < 0))	// indicate exit request
-		xs->frontbuf_idx = -1;
-	else {				// flip buffers
-		bufptr = xs->frontbuf;
-		xs->frontbuf = xs->backbuf;
-		xs->frontbuf_idx = xs->backbuf_idx;
-		xs->frontbuf_postdelay = (flush > 1) ? flush : 0;
-		xs->backbuf = bufptr;
-		xs->backbuf_idx = 0;
-	}
+	bufptr = xs->frontbuf;
+	xs->frontbuf = xs->backbuf;
+	xs->frontbuf_idx = xs->backbuf_idx;
+	xs->frontbuf_postdelay = flush;
+	xs->backbuf = bufptr;
+	xs->backbuf_idx = 0;
 
 	cnd_signal(&xs->frontbuf_ready_cnd);
 	mtx_unlock(&xs->frontbuf_mtx);
@@ -495,7 +491,7 @@ void exSID_exit(void * const exsid)
 		exSID_reset(xs, 0);
 
 #ifdef	EXSID_THREADED
-		xSoutb(xs, XS_AD_IOCTFV, -1);	// signal end of thread
+		xSoutb(xs, XS_AD_IOCTD1, -1);	// signal end of thread
 		thrd_join(xs->thread_output, NULL);
 		cnd_destroy(&xs->frontbuf_ready_cnd);
 		mtx_destroy(&xs->frontbuf_mtx);
