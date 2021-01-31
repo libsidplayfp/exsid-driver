@@ -15,6 +15,11 @@
  * This driver will control the first exSID device available.
  * All public API functions are only valid after a successful call to exSID_init().
  * To release the device and resources, exSID_exit() and exSID_free() must be called.
+ *
+ * @warning Although it can internally make use of two separate threads, the driver
+ * implementation is NOT thread safe (since it is not expected that a SID device may
+ * be accessed concurrently), and some optimizations in the code are based on the
+ * assumption that the code is run within a single-threaded environment.
  */
 
 #include "exSID.h"
@@ -129,11 +134,11 @@ struct _exsid {
 
 #ifdef	EXSID_THREADED
 	// Variables for flip buffering
-	int frontbuf_postdelay;	///< post delay applied after writing frontbuf to device, before the next write is attempted
-	int frontbuf_idx;
+	_Bool backbuf_ready;
+	int postdelay;	///< post delay applied after writing frontbuf to device, before the next write is attempted
 	unsigned char * restrict frontbuf;
-	mtx_t frontbuf_mtx;	///< mutex protecting access to frontbuf
-	cnd_t frontbuf_ready_cnd, frontbuf_done_cnd;
+	mtx_t flip_mtx;
+	cnd_t backbuf_full_cnd, backbuf_avail_cnd;
 	thrd_t thread_output;
 #endif	// EXSID_THREADED
 
@@ -204,6 +209,8 @@ static inline void xSwrite(struct _exsid * const xs, const unsigned char * buff,
 
 /**
  * Read routine to get data from the device.
+ * @warning if EXSID_THREADED is enabled, must not be called once the
+ * output thread is writing to the device (no synchronization with output thread).
  * @note BLOCKING.
  * @param xs exsid private pointer
  * @param buff pointer to a byte array that will be filled with read data
@@ -211,16 +218,12 @@ static inline void xSwrite(struct _exsid * const xs, const unsigned char * buff,
  */
 static void xSread(struct _exsid * const xs, unsigned char * buff, int size)
 {
-	int ret;
-#ifdef	EXSID_THREADED
-	mtx_lock(&xs->frontbuf_mtx);
-	while (xs->frontbuf_idx)
-		cnd_wait(&xs->frontbuf_done_cnd, &xs->frontbuf_mtx);
-#endif
-	ret = xSfw_read_data(xs->ftdi, buff, size);
-#ifdef	EXSID_THREADED
-	mtx_unlock(&xs->frontbuf_mtx);
-#endif
+	int ret = 0;
+
+	// libftdi implements a non-blocking read() call that returns 0 if no data was available
+	do {
+		ret += xSfw_read_data(xs->ftdi, buff+ret, size-ret);
+	} while (ret != size);
 
 #ifdef	DEBUG
 	if (unlikely(ret < 0)) {
@@ -237,37 +240,42 @@ static void xSread(struct _exsid * const xs, unsigned char * buff, int size)
 
 #ifdef	EXSID_THREADED
 /**
- * Writer thread. ** consummer **
+ * Writer thread. ** consumer **
  * This thread consumes buffer prepared in xSoutb().
  * Since writes to the FTDI subsystem are blocking, this thread blocks when it's
- * writing to the chip, and also while it's waiting for the front buffer to be ready.
- * This ensures execution time consistency as xSoutb() periodically waits for
- * the front buffer to be ready before flipping buffers.
+ * writing to the chip, and also while it's waiting for the back buffer to be ready.
+ * When the back buffer is ready, it is flipped with the front one and immediately
+ * released for the next fill, while the front buffer is written to the device.
  * @note BLOCKING.
- * @param arg ignored
- * @return DOES NOT RETURN, exits when frontbuf_idx is negative.
+ * @param arg exsid handle
+ * @return DOES NOT RETURN, exits when xs->postdelay is negative.
  */
 static int _exSID_thread_output(void * arg)
 {
 	struct _exsid * const xs = arg;
-	int delay;
+	unsigned char * bufptr;
+	int frontbuf_idx, delay;
 
 	xsdbg("thread started\n");
 	while (1) {
-		mtx_lock(&xs->frontbuf_mtx);
+		mtx_lock(&xs->flip_mtx);
 
-		// wait for frontbuf ready (not empty)
-		while (!xs->frontbuf_idx)
-			cnd_wait(&xs->frontbuf_ready_cnd, &xs->frontbuf_mtx);
+		// wait for backbuf full
+		while (!xs->backbuf_ready)
+			cnd_wait(&xs->backbuf_full_cnd, &xs->flip_mtx);
 
-		delay = xs->frontbuf_postdelay;
-		xSwrite(xs, xs->frontbuf, xs->frontbuf_idx);
-		xs->frontbuf_idx = 0;
+		bufptr = xs->frontbuf;
+		xs->frontbuf = xs->backbuf;
+		frontbuf_idx = xs->backbuf_idx;
+		xs->backbuf = bufptr;
+		xs->backbuf_idx = 0;
+		delay = xs->postdelay;
+		xs->backbuf_ready = 0;
 
-		// xSread() and xSoutb() are in the same thread of execution
-		// so it can only be one or the other waiting.
-		cnd_signal(&xs->frontbuf_done_cnd);
-		mtx_unlock(&xs->frontbuf_mtx);
+		cnd_signal(&xs->backbuf_avail_cnd);
+		mtx_unlock(&xs->flip_mtx);
+
+		xSwrite(xs, xs->frontbuf, frontbuf_idx);
 
 		if (unlikely(delay)) {
 			if (likely(delay > 0))
@@ -284,8 +292,7 @@ static int _exSID_thread_output(void * arg)
 
 /**
  * Single byte output routine. ** producer **
- * Fills a static buffer with bytes to send to the device until the buffer is
- * full or a forced write is triggered.
+ * Fills a buffer with bytes to send to the device until the buffer is full or a forced write is triggered.
  * @note No drift compensation is performed on read operations.
  * @param xs exsid private pointer
  * @param byte byte to send
@@ -293,10 +300,6 @@ static int _exSID_thread_output(void * arg)
  */
 static void xSoutb(struct _exsid * const xs, uint8_t byte, int flush)
 {
-#ifdef	EXSID_THREADED
-	unsigned char * bufptr;
-#endif
-
 	xs->backbuf[xs->backbuf_idx++] = (unsigned char)byte;
 
 	if (likely((xs->backbuf_idx < xs->xSconsts->buff_size) && !flush))
@@ -304,22 +307,19 @@ static void xSoutb(struct _exsid * const xs, uint8_t byte, int flush)
 
 #ifdef	EXSID_THREADED
 	// buffer dance
-	mtx_lock(&xs->frontbuf_mtx);
+	mtx_lock(&xs->flip_mtx);
 
-	// wait for frontbuf available (empty). Only triggers if previous
-	// write buffer hasn't been consummed before we get here again.
-	while (xs->frontbuf_idx)
-		cnd_wait(&xs->frontbuf_done_cnd, &xs->frontbuf_mtx);
+	xs->postdelay = flush;
 
-	bufptr = xs->frontbuf;
-	xs->frontbuf = xs->backbuf;
-	xs->frontbuf_idx = xs->backbuf_idx;
-	xs->frontbuf_postdelay = flush;
-	xs->backbuf = bufptr;
-	xs->backbuf_idx = 0;
+	// signal backbuff full
+	xs->backbuf_ready = 1;
+	cnd_signal(&xs->backbuf_full_cnd);
 
-	cnd_signal(&xs->frontbuf_ready_cnd);
-	mtx_unlock(&xs->frontbuf_mtx);
+	// wait for buffer flipped
+	while (xs->backbuf_idx)
+		cnd_wait(&xs->backbuf_avail_cnd, &xs->flip_mtx);
+
+	mtx_unlock(&xs->flip_mtx);
 #else	// unthreaded
 	xSwrite(xs, xs->backbuf, xs->backbuf_idx);
 	xs->backbuf_idx = 0;
@@ -435,7 +435,6 @@ int exSID_init(void * const exsid)
 	xsdbg("Device setup\n");
 
 	// Wait for device ready by trying to read hw version and wait for the answer
-	// XXX Broken with libftdi due to non-blocking read :-/
 	buf[0] = XS_AD_IOCTHV;
 	buf[1] = XS_AD_IOCTFV;	// ok as we have a 2-byte RX buffer on PIC
 	xSwrite(xs, buf, 2);
@@ -450,22 +449,22 @@ int exSID_init(void * const exsid)
 	}
 
 #ifdef	EXSID_THREADED
-	xsdbg("Thread setup\n");
-
 	xs->frontbuf = malloc(xs->xSconsts->buff_size);
 	if (!xs->frontbuf) {
 		xserror(xs, "Out of memory!");
 		return -1;
 	}
 
-	ret = mtx_init(&xs->frontbuf_mtx, mtx_plain);
-	ret |= cnd_init(&xs->frontbuf_ready_cnd);
-	ret |= cnd_init(&xs->frontbuf_done_cnd);
+	ret = mtx_init(&xs->flip_mtx, mtx_plain);
+	ret |= cnd_init(&xs->backbuf_avail_cnd);
+	ret |= cnd_init(&xs->backbuf_full_cnd);
 	ret |= thrd_create(&xs->thread_output, _exSID_thread_output, xs);
 	if (ret) {
 		xserror(xs, "Thread setup failed");
 		return -1;
 	}
+
+	xsdbg("Thread setup\n");
 #endif
 
 	xsdbg("buffer size: %zu bytes\n", xs->xSconsts->buff_size);
@@ -494,8 +493,9 @@ void exSID_exit(void * const exsid)
 #ifdef	EXSID_THREADED
 		xSoutb(xs, XS_AD_IOCTD1, -1);	// signal end of thread
 		thrd_join(xs->thread_output, NULL);
-		cnd_destroy(&xs->frontbuf_ready_cnd);
-		mtx_destroy(&xs->frontbuf_mtx);
+		cnd_destroy(&xs->backbuf_full_cnd);
+		cnd_destroy(&xs->backbuf_avail_cnd);
+		mtx_destroy(&xs->flip_mtx);
 		if (xs->frontbuf)
 			free(xs->frontbuf);
 		xs->frontbuf = NULL;
@@ -738,6 +738,7 @@ static inline void xSdelay(struct _exsid * const xs, uint_fast32_t cycles)
 #endif
 }
 
+#ifndef EXSID_THREADED
 /**
  * Private long delay loop.
  * Calls to IOCTLD delay, for "very" long delays (thousands of SID clocks).
@@ -787,6 +788,7 @@ static void xSlongdelay(struct _exsid * const xs, uint_fast32_t cycles)
 	// deal with remainder
 	xSdelay(xs, delta);
 }
+#endif
 
 /**
  * Cycle accurate delay routine.
@@ -905,24 +907,6 @@ void exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t add
 }
 
 /**
- * Private read routine for a given address.
- * @param xs exsid private pointer
- * @param addr target address to read from.
- * @param flush if non-zero, force immediate flush to device.
- * @return data read from address.
- */
-static inline uint8_t _exSID_read(struct _exsid * const xs, uint_least8_t addr, int flush)
-{
-	unsigned char data;
-
-	xSoutb(xs, addr, flush);	// XXX
-	xSread(xs, &data, 1);		// blocking
-
-	xsdbg("addr: %.2" PRIxLEAST8 ", data: %.2hhx\n", addr, data);
-	return data;
-}
-
-/**
  * BLOCKING Timed read routine, attempts cycle-accurate reads.
  * The following description is based on exSID (standard).
  * This function will be cycle-accurate provided that no two consecutive reads or writes
@@ -940,6 +924,9 @@ static inline uint8_t _exSID_read(struct _exsid * const xs, uint_least8_t addr, 
  *	then half a cycle later the CYCCHR-long data TX starts, cycle completes | another cycle | etc... <br />
  * This explains why reads happen a relative 2-cycle later than then should with
  * respect to writes.
+ * @warning this function is only valid if EXSID_THREADED is not defined. If it
+ * is called when EXSID_THREADED is defined, no read will be performed, however
+ * the requested cycles will still be clocked.
  * @note The actual time the read will take to complete depends
  * on the USB bus activity and settings. It *should* complete in XSC_USBLAT ms, but
  * not less, meaning that read operations are bound to introduce timing inaccuracy.
@@ -953,6 +940,8 @@ static inline uint8_t _exSID_read(struct _exsid * const xs, uint_least8_t addr, 
 uint8_t exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t addr)
 {
 	struct _exsid * const xs = exsid;
+#ifndef	EXSID_THREADED
+	unsigned char data;
 	int adj;
 
 	if (unlikely(!xs))
@@ -1002,5 +991,11 @@ uint8_t exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t a
 	xs->clkdrift -= xs->xSconsts->read_post_cycles;
 
 	//xsdbg("delay: %d, clkdrift: %d\n", cycles, clkdrift);
-	return _exSID_read(xs, addr, 1);
+	xSoutb(xs, addr, 1);
+	xSread(xs, &data, 1);		// blocking
+	return data;
+#else	// !EXSID_THREADED
+	exSID_delay(xs, cycles);
+	return 0xFF;
+#endif
 }

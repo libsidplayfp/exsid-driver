@@ -66,8 +66,10 @@ int exSID_audio_op(void * const exsid, int operation);
 void exSID_chipselect(void * const exsid, int chip);
 void exSID_delay(void * const exsid, uint_fast32_t cycles);
 void exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t addr, uint8_t data);
-uint8_t exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t addr);
 const char * exSID_error_str(void * const exsid);
+
+/* NB: read interface is only provided as proof of concept */
+uint8_t exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t addr);
 
 #ifdef __cplusplus
 }
