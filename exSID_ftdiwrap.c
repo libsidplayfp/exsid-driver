@@ -13,11 +13,6 @@
  * @author Thibaut VARENE
  * @date 2016
  * @note Primary target is libftdi (cleaner API), adaptations are made for others.
- *	Sadly, libftdi's implementation of read() is unreliable (it doesn't seem
- *	to honour the usb timeout value and doesn't properly block long enough).
- *	This is why libftd2xx is prefered (tried first) for now. Unfortunately,
- *	using libftd2xx comes with a significant performance penalty since
- *	the code is tailored for libftdi.
  */
 
 
@@ -58,7 +53,7 @@
 #define	XSFW_WRAPDECL
 #include "exSID_ftdiwrap.h"
 
-#define EXSID_INTERFACES "libftd2xx, libftdi"	// XXX TODO Should be set by configure
+#define EXSID_INTERFACES "libftdi, libftd2xx"	// XXX TODO Should be set by configure
 
 #ifdef _WIN32
  static HMODULE dlhandle = NULL;
@@ -192,13 +187,34 @@ int xSfw_dlopen()
 		return 0;
 	}
 
+#ifdef	HAVE_FTDI
+	// try libftdi1 first - XXX TODO version check
+	if ((dlhandle = _xSfw_dlopen(TEXT("libftdi1" SHLIBEXT)))) {
+		_xSfw_clear_dlerror();	// clear dlerror
+		XSFW_DLSYM(xSfw_new, "ftdi_new");
+		XSFW_DLSYM(xSfw_free, "ftdi_free");
+		XSFW_DLSYM(xSfw_write_data, "ftdi_write_data");
+		XSFW_DLSYM(xSfw_read_data, "ftdi_read_data");
+		XSFW_DLSYM(_ftdi_usb_open_desc, "ftdi_usb_open_desc");
+		xSfw_usb_open_desc = _xSfwftdi_usb_open_desc;
+		XSFW_DLSYM(_xSfw_set_baudrate, "ftdi_set_baudrate");
+		XSFW_DLSYM(_xSfw_set_line_property, "ftdi_set_line_property");
+		XSFW_DLSYM(_xSfw_setflowctrl, "ftdi_setflowctrl");
+		XSFW_DLSYM(_xSfw_set_latency_timer, "ftdi_set_latency_timer");
+		XSFW_DLSYM(xSfw_usb_close, "ftdi_usb_close");
+		XSFW_DLSYM(xSfw_get_error_string, "ftdi_get_error_string");
+		libtype = XS_LIBFTDI;
+		xsdbg("Using libftdi\n");
+	}
+	else
+#endif
 #ifdef	HAVE_FTD2XX
 #ifdef _WIN32
 # define LIBFTD2XX "ftd2xx"
 #else
 # define LIBFTD2XX "libftd2xx"
 #endif
-	// try libftd2xx first - XXX TODO version check
+	// otherwise try libftd2xx - XXX TODO version check
 	if ((dlhandle = _xSfw_dlopen(TEXT(LIBFTD2XX SHLIBEXT)))) {
 		_xSfw_clear_dlerror();	// clear dlerror
 		xSfw_new = NULL;
@@ -219,27 +235,6 @@ int xSfw_dlopen()
 		xSfw_get_error_string = _xSfwFT_get_error_string;
 		libtype = XS_LIBFTD2XX;
 		xsdbg("Using libftd2xx\n");
-	}
-	else
-#endif
-#ifdef	HAVE_FTDI
-	// otherwise try libftdi1 - XXX TODO version check
-	if ((dlhandle = _xSfw_dlopen(TEXT("libftdi1" SHLIBEXT)))) {
-		_xSfw_clear_dlerror();	// clear dlerror
-		XSFW_DLSYM(xSfw_new, "ftdi_new");
-		XSFW_DLSYM(xSfw_free, "ftdi_free");
-		XSFW_DLSYM(xSfw_write_data, "ftdi_write_data");
-		XSFW_DLSYM(xSfw_read_data, "ftdi_read_data");
-		XSFW_DLSYM(_ftdi_usb_open_desc, "ftdi_usb_open_desc");
-		xSfw_usb_open_desc = _xSfwftdi_usb_open_desc;
-		XSFW_DLSYM(_xSfw_set_baudrate, "ftdi_set_baudrate");
-		XSFW_DLSYM(_xSfw_set_line_property, "ftdi_set_line_property");
-		XSFW_DLSYM(_xSfw_setflowctrl, "ftdi_setflowctrl");
-		XSFW_DLSYM(_xSfw_set_latency_timer, "ftdi_set_latency_timer");
-		XSFW_DLSYM(xSfw_usb_close, "ftdi_usb_close");
-		XSFW_DLSYM(xSfw_get_error_string, "ftdi_get_error_string");
-		libtype = XS_LIBFTDI;
-		xsdbg("Using libftdi\n");
 	}
 	else
 #endif
