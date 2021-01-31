@@ -137,6 +137,7 @@ struct _exsid {
 	thrd_t thread_output;
 #endif	// EXSID_THREADED
 
+	uint16_t hwvers;
 	char xSerrstr[XS_ERRORBUF+1];	// 256-byte max string for error message
 };
 
@@ -376,7 +377,7 @@ void exSID_free(void * exsid)
 int exSID_init(void * const exsid)
 {
 	struct _exsid * const xs = exsid;
-	unsigned char dummy;
+	unsigned char buf[2];
 	int i, found, ret;
 
 	if (!exsid) {
@@ -430,8 +431,17 @@ int exSID_init(void * const exsid)
 		return -1;
 	}
 
-	// success - device is ready
-	xsdbg("Device ready\n");
+	// success - device is setup
+	xsdbg("Device setup\n");
+
+	// Wait for device ready by trying to read hw version and wait for the answer
+	// XXX Broken with libftdi due to non-blocking read :-/
+	buf[0] = XS_AD_IOCTHV;
+	buf[1] = XS_AD_IOCTFV;	// ok as we have a 2-byte RX buffer on PIC
+	xSwrite(xs, buf, 2);
+	xSread(xs, buf, 2);
+	xs->hwvers = buf[0] << 8 | buf[1];	// ensure proper order regardless of endianness
+	xsdbg("HV: %c, FV: %hhu\n", buf[0], buf[1]);
 
 	xs->backbuf = malloc(xs->xSconsts->buff_size);
 	if (!xs->backbuf) {
@@ -458,17 +468,8 @@ int exSID_init(void * const exsid)
 	}
 #endif
 
-	// Wait for device ready by trying to read FV and wait for the answer
-	// XXX Broken with libftdi due to non-blocking read :-/
-	xSoutb(xs, XS_AD_IOCTFV, 1);
-	xSread(xs, &dummy, 1);
-
-	xsdbg("Rock'n'roll!\n");
-
-#ifdef	DEBUG
-	exSID_hwversion(xs);
 	xsdbg("buffer size: %zu bytes\n", xs->xSconsts->buff_size);
-#endif
+	xsdbg("Rock'n'roll!\n");
 
 	return 0;
 }
@@ -698,31 +699,21 @@ int exSID_hwmodel(void * const exsid)
 
 /**
  * Hardware and firmware version of the device.
- * Queries the device for the hardware revision and current firmware version
- * and returns both in the form of a 16bit integer: MSB is an ASCII
+ * Returns both in the form of a 16bit integer: MSB is an ASCII
  * character representing the hardware revision (e.g. 0x42 = "B"), and LSB
  * is a number representing the firmware version in decimal integer.
- * Does NOT account for elapsed cycles.
+ * Does not reach the hardware (information is fetched once in exSID_init()).
  * @param exsid exsid handle
  * @return version information as described above.
  */
 uint16_t exSID_hwversion(void * const exsid)
 {
 	struct _exsid * const xs = exsid;
-	unsigned char inbuf[2];
-	uint16_t out = 0;
 
 	if (!xs)
 		return -1;
 
-	xSoutb(xs, XS_AD_IOCTHV, 0);
-	xSoutb(xs, XS_AD_IOCTFV, 1);
-	xSread(xs, inbuf, 2);
-	out = inbuf[0] << 8 | inbuf[1];	// ensure proper order regardless of endianness
-
-	xsdbg("HV: %c, FV: %hhu\n", inbuf[0], inbuf[1]);
-
-	return out;
+	return xs->hwvers;
 }
 
 /**
