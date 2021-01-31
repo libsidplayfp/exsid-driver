@@ -350,7 +350,7 @@ void exSID_free(void * exsid)
 	if (!xs)
 		return;
 
-	if (xSfw_free)
+	if (xSfw_free && xs->ftdi)
 		xSfw_free(xs->ftdi);
 
 #ifdef	EXSID_THREADED
@@ -476,7 +476,7 @@ int exSID_init(void * const exsid)
 /**
  * Device exit routine.
  * Must be called to release the device.
- * Resets the SIDs and clears RX/TX buffers, closes FTDI device.
+ * Resets the SIDs, frees buffers and closes FTDI device.
  * @param exsid exsid handle
  */
 void exSID_exit(void * const exsid)
@@ -495,12 +495,23 @@ void exSID_exit(void * const exsid)
 		thrd_join(xs->thread_output, NULL);
 		cnd_destroy(&xs->frontbuf_ready_cnd);
 		mtx_destroy(&xs->frontbuf_mtx);
+		if (xs->frontbuf)
+			free(xs->frontbuf);
+		xs->frontbuf = NULL;
 #endif
+
+		if (xs->backbuf)
+			free(xs->backbuf);
+		xs->backbuf = NULL;
 
 		ret = xSfw_usb_close(xs->ftdi);
 		if (ret < 0)
 			xserror(xs, "Unable to close ftdi device: %d (%s)",
 				ret, xSfw_get_error_string(xs->ftdi));
+
+		if (xSfw_free)
+			xSfw_free(xs->ftdi);
+		xs->ftdi = NULL;
 
 #ifdef	DEBUG
 		xsdbg("mean jitter: %.2f cycle(s) over %lu I/O ops\n",
