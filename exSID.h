@@ -58,7 +58,7 @@ void exSID_free(void * exsid);
 int exSID_init(void * const exsid);
 void exSID_exit(void * const exsid);
 
-void exSID_reset(void * const exsid, uint_least8_t volume);
+void exSID_reset(void * const exsid);
 int exSID_hwmodel(void * const exsid);
 uint16_t exSID_hwversion(void * const exsid);
 int exSID_clockselect(void * const exsid, int clock);

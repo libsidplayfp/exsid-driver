@@ -488,7 +488,7 @@ void exSID_exit(void * const exsid)
 		return;
 
 	if (xs->ftdi) {
-		exSID_reset(xs, 0);
+		exSID_reset(xs);
 
 #ifdef	EXSID_THREADED
 		xSoutb(xs, XS_AD_IOCTD1, -1);	// signal end of thread
@@ -522,19 +522,17 @@ void exSID_exit(void * const exsid)
  * @note since the reset procedure in firmware will stall the device,
  * reset forcefully waits for enough time before resuming execution.
  * @param exsid exsid handle
- * @param volume volume to set the SIDs to after reset.
  */
-void exSID_reset(void * const exsid, uint_least8_t volume)
+void exSID_reset(void * const exsid)
 {
 	struct _exsid * const xs = exsid;
 
 	if (!xs)
 		return;
 
-	xsdbg("rvol: %" PRIxLEAST8 "\n", volume);
+	xsdbg("reset\n");
 
 	xSoutb(xs, XS_AD_IOCTRS, 100);	// this will stall
-	_exSID_write(xs, 0x18, volume, 1);	// this only needs 2 bytes which matches the input buffer of the PIC so all is well
 
 	xs->clkdrift = 0;
 }
