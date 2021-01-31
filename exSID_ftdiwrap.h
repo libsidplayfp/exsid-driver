@@ -80,7 +80,6 @@ XSFW_PROTODEF(xSfw_free);		///< Handle deallocation callback
 XSFW_PROTODEF(xSfw_write_data);		///< Data write callback
 XSFW_PROTODEF(xSfw_read_data);		///< Data read callback
 XSFW_PROTODEF(xSfw_usb_open_desc);	///< Device open callback
-XSFW_PROTODEF(xSfw_usb_purge_buffers);	///< Device buffers purge callback
 XSFW_PROTODEF(xSfw_usb_close);		///< Device close callback
 XSFW_PROTODEF(xSfw_get_error_string);	///< Human readable error string callback
 int xSfw_usb_setup(void *ftdi, int baudrate, int latency);

@@ -122,7 +122,6 @@ static int (*_FT_SetBaudRate)(void *, int);
 static int (*_FT_SetDataCharacteristics)(void *, int, int, int);
 static int (*_FT_SetFlowControl)(void *, int, int, int);
 static int (*_FT_SetLatencyTimer)(void *, unsigned char);
-static int (*_FT_Purge)(void *, int);
 static int (*_FT_Close)(void *);
 #endif
 
@@ -159,11 +158,6 @@ static int _xSfwFT_read_data(void * restrict ftdi, unsigned char * restrict buf,
 static int _xSfwFT_usb_open_desc(void ** ftdi, int vid, int pid, const char * desc, const char * serial)
 {
 	return -_FT_OpenEx(desc, FT_OPEN_BY_DESCRIPTION, ftdi);
-}
-
-static int _xSfwFT_usb_purge_buffers(void * ftdi)
-{
-	return -_FT_Purge(ftdi, FT_PURGE_RX | FT_PURGE_TX);
 }
 
 static int _xSfwFT_usb_close(void * ftdi)
@@ -220,8 +214,6 @@ int xSfw_dlopen()
 		XSFW_DLSYM(_FT_SetDataCharacteristics, "FT_SetDataCharacteristics");
 		XSFW_DLSYM(_FT_SetFlowControl, "FT_SetFlowControl");
 		XSFW_DLSYM(_FT_SetLatencyTimer, "FT_SetLatencyTimer");
-		XSFW_DLSYM(_FT_Purge, "FT_Purge");
-		xSfw_usb_purge_buffers = _xSfwFT_usb_purge_buffers;
 		XSFW_DLSYM(_FT_Close, "FT_Close");
 		xSfw_usb_close = _xSfwFT_usb_close;
 		xSfw_get_error_string = _xSfwFT_get_error_string;
@@ -244,7 +236,6 @@ int xSfw_dlopen()
 		XSFW_DLSYM(_xSfw_set_line_property, "ftdi_set_line_property");
 		XSFW_DLSYM(_xSfw_setflowctrl, "ftdi_setflowctrl");
 		XSFW_DLSYM(_xSfw_set_latency_timer, "ftdi_set_latency_timer");
-		XSFW_DLSYM(xSfw_usb_purge_buffers, "ftdi_usb_purge_buffers");
 		XSFW_DLSYM(xSfw_usb_close, "ftdi_usb_close");
 		XSFW_DLSYM(xSfw_get_error_string, "ftdi_get_error_string");
 		libtype = XS_LIBFTDI;
