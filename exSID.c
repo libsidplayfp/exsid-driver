@@ -149,7 +149,9 @@ struct _exsid {
 static inline void _exSID_write(struct _exsid * const xs, uint_least8_t addr, uint8_t data, int flush);
 
 /**
- * Signal-safe nanosleep() wrapper.
+ * Signal-safe nanosleep() wrapper, can be used to wait for exSID.
+ * Some operations stall the device and because we don't use flow control on exSID, we may need to wait.
+ * exSID+ use full bidirectionnal flow control and does not require the wait.
  * @param usecs requested sleep time in microseconds.
  * @return return value of nanosleep(), with EINTR handled internally.
  */
@@ -157,6 +159,8 @@ static int _xSusleep(int usecs)
 {
 	struct timespec tv;
 	int ret;
+
+	xsdbg("sleep: %d\n", usecs);
 
 	tv.tv_sec = usecs / 1000000;
 	tv.tv_nsec = (usecs % 1000000) * 1000;
@@ -278,12 +282,12 @@ static int _exSID_thread_output(void * arg)
 		xSwrite(xs, xs->frontbuf, frontbuf_idx);
 
 		if (unlikely(delay)) {
-			if (likely(delay > 0))
-				_xSusleep(delay);
-			else {	// exit condition
+			if (unlikely(delay < 0)) {	// exit condition
 				xsdbg("thread exiting!\n");
 				thrd_exit(0);
 			}
+			else if (XS_MODEL_STD == xs->xSconsts->model)
+				_xSusleep(delay);
 		}
 	}
 	return 0;	// make the compiler happy
@@ -323,7 +327,7 @@ static void xSoutb(struct _exsid * const xs, uint8_t byte, int flush)
 #else	// unthreaded
 	xSwrite(xs, xs->backbuf, xs->backbuf_idx);
 	xs->backbuf_idx = 0;
-	if (unlikely(flush > 1))
+	if (unlikely((flush > 1) && (XS_MODEL_STD == xs->xSconsts->model)))
 		_xSusleep(flush);
 #endif
 }
