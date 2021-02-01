@@ -67,7 +67,6 @@ struct xSconsts_s {
 	clkdrift_t	csioctl_cycles;		///< number of SID clocks spent in chip select ioctl
 	clkdrift_t	mindel_cycles;		///< lowest number of SID clocks that can be accounted for in delay
 	clkdrift_t	max_adj;		///< maximum number of SID clocks that can be encoded in final delay for read()/write()
-	clkdrift_t	ldelay_offs;		///< long delay SID clocks offset
 	size_t		buff_size;		///< output buffer size
 };
 
@@ -92,7 +91,6 @@ static const struct {
 			.csioctl_cycles = XS_CYCCHR,
 			.mindel_cycles = XS_MINDEL,
 			.max_adj = XS_MAXADJ,
-			.ldelay_offs = XS_LDOFFS,
 			.buff_size = XS_BUFFSZ,
 		},
 	}, {
@@ -109,7 +107,6 @@ static const struct {
 			.csioctl_cycles = XSP_CYCCS,
 			.mindel_cycles = XSP_MINDEL,
 			.max_adj = XSP_MAXADJ,
-			.ldelay_offs = XSP_LDOFFS,
 			.buff_size = XSP_BUFFSZ,
 		},
 	}
@@ -759,64 +756,9 @@ static inline void xSdelay(struct _exsid * const xs, uint_fast32_t cycles)
 #endif
 }
 
-static inline void _exSID_write(struct _exsid * const xs, uint_least8_t addr, uint8_t data, int flush);
-
-#ifndef EXSID_THREADED
-/**
- * Private long delay loop.
- * Calls to IOCTLD delay, for "very" long delays (thousands of SID clocks).
- * Requested delay @b MUST be > ldelay_offs, and for better performance,
- * the requested delay time should ideally be several XS_LDMULT and be close to
- * a multiple of XSC_USBLAT milliseconds (on the exSID).
- * @warning polling and NOT CYCLE ACCURATE on exSID
- * @param xs exsid private pointer
- * @param cycles how many SID clocks to wait for.
- */
-static void xSlongdelay(struct _exsid * const xs, uint_fast32_t cycles)
-{
-	int multiple, flush;
-	uint_fast32_t delta;
-	unsigned char dummy;
-
-	flush = (XS_MODEL_STD == xs->cst->model);
-
-	multiple = cycles - xs->cst->ldelay_offs;
-	delta = multiple % XS_LDMULT;
-	multiple /= XS_LDMULT;
-
-	//xsdbg("ldelay: %" PRIdFAST32 ", multiple: %d, delta: %" PRIdFAST32 "\n", cycles, multiple, delta);
-
-	if (unlikely(multiple < 0)) {
-		xsdbg("Wrong delay!\n");
-		return;
-	}
-
-#ifdef	DEBUG
-	xs->accdelay += (cycles - delta);
-#endif
-
-	while (multiple >= 255) {
-		_exSID_write(xs, XS_AD_IOCTLD, 255, flush);
-		if (flush)
-			xSread(xs, &dummy, 1);	// wait for answer with blocking read
-		multiple -= 255;
-	}
-
-	if (multiple) {
-		_exSID_write(xs, XS_AD_IOCTLD, (unsigned char)multiple, flush);
-		if (flush)
-			xSread(xs, &dummy, 1);	// wait for answer with blocking read
-	}
-
-	// deal with remainder
-	xSdelay(xs, delta);
-}
-#endif
-
 /**
  * Cycle accurate delay routine.
- * Applies the most efficient strategy to delay for cycles SID clocks
- * while leaving enough lead time for an I/O operation.
+ * Delay for cycles SID clocks while leaving enough lead time for an I/O operation.
  * @param exsid exsid handle
  * @param cycles how many SID clocks to loop for.
  * @return 0 on success, -1 on error and 1 if the requested number of cycles is smaller than the feasible delay
@@ -838,18 +780,7 @@ int exSID_delay(void * const exsid, uint_fast32_t cycles)
 		return 1;	// too short
 
 	delay = xs->clkdrift - xs->cst->write_cycles;
-
-	switch (xs->cst->model) {
-#if 0	// currently breaks sidplayfp - REVIEW
-		case XS_MODEL_PLUS:
-			if (delay > XS_LDMULT) {
-				xSlongdelay(xs, delay);
-				break;
-			}
-#endif
-		default:
-			xSdelay(xs, delay);
-	}
+	xSdelay(xs, delay);
 
 	return 0;
 }
