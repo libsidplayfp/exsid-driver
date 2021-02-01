@@ -19,7 +19,15 @@ extern "C" {
 
 #include <stdint.h>
 
-#define	XS_VERSION	"2.0pre"
+#define EXSID_MAJOR_VERSION	2
+#define EXSID_MINOR_VERSION	0
+#define EXSID_REVISION		0
+
+#define EXSID_VERSION		_xxstr(EXSID_MAJOR_VERSION) "." _xxstr(EXSID_MINOR_VERSION) "." _xxstr(EXSID_REVISION)
+#define EXSID_VERSION_CHECK(maj, min) ((maj==EXSID_MAJOR_VERSION) && (min<=EXSID_MINOR_VERSION))
+
+#define _xstr(x)	#x
+#define _xxstr(x)	_xstr(x)
 
 /** Chip selection values for exSID_chipselect() */
 enum {

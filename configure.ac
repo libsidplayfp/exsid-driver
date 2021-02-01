@@ -1,4 +1,4 @@
-AC_INIT([libexsid], [1.6], [], [], [http://hacks.slashdirt.org/hw/exsid/#libexsid])
+AC_INIT([libexsid], [2.0], [], [], [https://github.com/libsidplayfp/exsid-driver])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([exSID.c])
@@ -99,7 +99,7 @@ dnl libtool-style version-info number
 #
 # Increase the age value only if the changes made to the ABI are backward compatible.
 
-LIBEXSIDCUR=0
+LIBEXSIDCUR=2
 LIBEXSIDREV=0
 LIBEXSIDAGE=0
 LIBEXSIDVERSION=$LIBEXSIDCUR:$LIBEXSIDREV:$LIBEXSIDAGE

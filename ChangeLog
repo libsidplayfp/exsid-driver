@@ -1,3 +1,17 @@
+2.0
+	* API change, ABI not backward compatible
+	* Remove all static variables, switch to dynamic allocation
+	* All public interfaces return execution status
+	* Remove dead code
+	* Fix exit() routine in threaded mode
+	* Move flip buffer management and delays to output thread
+	* Perform ResetDevice() in USB setup when using D2XX library
+	* Make buffer size a correct multiple of USB payload
+	* Improve buffer size for exSID+
+	* Don't purge RX/TX buffers on exit
+	* Don't set volume in exSID_reset()
+	* Fix operation with libftdi and make it first choice
+
 1.6
 	* Initial support for exSID+
 	* Rename some functions

@@ -10,7 +10,7 @@
  * exSID/exSID+ USB I/O library
  * @author Thibaut VARENE
  * @date 2015-2018,2021
- * @version 2.0pre
+ * @version 2.0
  *
  * This driver will control the first exSID device available.
  * All public API functions are only valid after a successful call to exSID_init().
@@ -385,6 +385,8 @@ int exSID_init(void * const exsid)
 	struct _exsid * const xs = exsid;
 	unsigned char buf[2];
 	int i, ret;
+
+	xsdbg("libexsid v" EXSID_VERSION "\n");
 
 	if (!exsid) {
 		fprintf(stderr, "ERROR: exSID_init: invalid handle\n");
