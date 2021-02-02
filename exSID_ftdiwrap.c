@@ -24,6 +24,7 @@
  #define TEXT(x) x
 #elif defined (_WIN32)
  #include <windows.h>
+ #include <time.h>	// missing include in libftdi on WIN32
 #else
  #error dl not supported
 #endif
