@@ -56,20 +56,20 @@ void * exSID_new(void);
 void exSID_free(void * exsid);
 
 int exSID_init(void * const exsid);
-void exSID_exit(void * const exsid);
+int exSID_exit(void * const exsid);
 
-void exSID_reset(void * const exsid);
+int exSID_reset(void * const exsid);
 int exSID_hwmodel(void * const exsid);
 uint16_t exSID_hwversion(void * const exsid);
 int exSID_clockselect(void * const exsid, int clock);
 int exSID_audio_op(void * const exsid, int operation);
-void exSID_chipselect(void * const exsid, int chip);
-void exSID_delay(void * const exsid, uint_fast32_t cycles);
-void exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t addr, uint8_t data);
+int exSID_chipselect(void * const exsid, int chip);
+int exSID_delay(void * const exsid, uint_fast32_t cycles);
+int exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t addr, uint8_t data);
 const char * exSID_error_str(void * const exsid);
 
 /* NB: read interface is only provided as proof of concept */
-uint8_t exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t addr);
+int exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t addr, uint8_t * data);
 
 #ifdef __cplusplus
 }

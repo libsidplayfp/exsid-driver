@@ -16,6 +16,9 @@
  * All public API functions are only valid after a successful call to exSID_init().
  * To release the device and resources, exSID_exit() and exSID_free() must be called.
  *
+ * The return value for public routines returning an integer is 0 for successful execution
+ * and !0 for error, unless otherwise noted.
+ *
  * @warning Although it can internally make use of two separate threads, the driver
  * implementation is NOT thread safe (since it is not expected that a SID device may
  * be accessed concurrently), and some optimizations in the code are based on the
@@ -409,7 +412,7 @@ int exSID_init(void * const exsid)
 		}
 
 		xsdbg("Trying %s...\n", xSsupported[i].desc);
-		xs->xSconsts = &xSsupported[i].xsc;	// setting unconditionnally avoids segfaults if user code does the wrong thing.
+		xs->xSconsts = &xSsupported[i].xsc;	// setting unconditionnally avoids segfaults if user code calls exit() after failure.
 		ret = xSfw_usb_open_desc(&xs->ftdi, xSsupported[i].vid, xSsupported[i].pid, xSsupported[i].desc, NULL);
 		if (ret >= 0) {
 			xsdbg("Opened!\n");
@@ -482,14 +485,15 @@ int exSID_init(void * const exsid)
  * Must be called to release the device.
  * Resets the SIDs, frees buffers and closes FTDI device.
  * @param exsid exsid handle
+ * @return execution status
  */
-void exSID_exit(void * const exsid)
+int exSID_exit(void * const exsid)
 {
 	struct _exsid * const xs = exsid;
-	int ret;
+	int ret = 0;
 
 	if (!exsid)
-		return;
+		return -1;
 
 	if (xs->ftdi) {
 		exSID_reset(xs);
@@ -529,28 +533,34 @@ void exSID_exit(void * const exsid)
 
 	xs->clkdrift = 0;
 	xSfw_dlclose();
+
+	return ret;
 }
 
 
 /**
  * SID reset routine.
  * Performs a hardware reset on the SIDs.
+ * This also resets the internal drift adjustment counter.
  * @note since the reset procedure in firmware will stall the device,
  * reset forcefully waits for enough time before resuming execution.
  * @param exsid exsid handle
+ * @return execution status
  */
-void exSID_reset(void * const exsid)
+int exSID_reset(void * const exsid)
 {
 	struct _exsid * const xs = exsid;
 
 	if (!xs)
-		return;
+		return -1;
 
 	xsdbg("reset\n");
 
 	xSoutb(xs, XS_AD_IOCTRS, 100);	// this will stall
 
 	xs->clkdrift = 0;
+
+	return 0;
 }
 
 
@@ -558,8 +568,8 @@ void exSID_reset(void * const exsid)
  * exSID+ clock selection routine.
  * Selects between PAL, NTSC and 1MHz clocks.
  * @note upon clock change the hardware resync itself and resets the SIDs, which
- * takes approximately 50us: this function waits for enough time before resuming execution.
- * Output should be muted before execution
+ * takes approximately 50us: this function waits for enough time before resuming execution
+ * and resets the internal drift adjustment counter. Output should be muted before execution.
  * @param exsid exsid handle
  * @param clock clock selector value, see exSID.h.
  * @return execution status
@@ -600,7 +610,7 @@ int exSID_clockselect(void * const exsid, int clock)
  * Selects the audio mixing / muting option. Only implemented in exSID+ devices.
  * @warning all these operations (excepting unmuting obviously) will mute the
  * output by default.
- * @note no accounting for SID cycles consumed.
+ * @note no accounting for SID cycles consumed (not expected to be used during playback).
  * @param exsid exsid handle
  * @param operation audio operation value, see exSID.h.
  * @return execution status
@@ -646,27 +656,38 @@ int exSID_audio_op(void * const exsid, int operation)
 /**
  * SID chipselect routine.
  * Selects which SID will play the tunes. If neither CHIP0 or CHIP1 is chosen,
- * both SIDs will operate together. Accounts for elapsed cycles.
+ * both SIDs will operate together.
+ * @note Accounts for elapsed cycles.
  * @param exsid exsid handle
  * @param chip SID selector value, see exSID.h.
+ * @return execution status
  */
-void exSID_chipselect(void * const exsid, int chip)
+int exSID_chipselect(void * const exsid, int chip)
 {
 	struct _exsid * const xs = exsid;
 
 	if (!xs)
-		return;
+		return -1;
 
 	xs->clkdrift -= xs->xSconsts->csioctl_cycles;
 
 	xsdbg("cs: %d\n", chip);
 
-	if (XS_CS_CHIP0 == chip)
-		xSoutb(xs, XS_AD_IOCTS0, 0);
-	else if (XS_CS_CHIP1 == chip)
-		xSoutb(xs, XS_AD_IOCTS1, 0);
-	else
-		xSoutb(xs, XS_AD_IOCTSB, 0);
+	switch (chip) {
+		case XS_CS_CHIP0:
+			xSoutb(xs, XS_AD_IOCTS0, 0);
+			break;
+		case XS_CS_CHIP1:
+			xSoutb(xs, XS_AD_IOCTS1, 0);
+			break;
+		case XS_CS_BOTH:
+			xSoutb(xs, XS_AD_IOCTSB, 0);
+			break;
+		default:
+			return -1;
+	}
+
+	return 0;
 }
 
 /**
@@ -678,11 +699,10 @@ void exSID_chipselect(void * const exsid, int chip)
 int exSID_hwmodel(void * const exsid)
 {
 	struct _exsid * const xs = exsid;
+	int model;
 
 	if (!xs)
 		return -1;
-
-	int model;
 
 	switch (xs->xSconsts->model) {
 		case XS_MODEL_STD:
@@ -708,14 +728,14 @@ int exSID_hwmodel(void * const exsid)
  * is a number representing the firmware version in decimal integer.
  * Does not reach the hardware (information is fetched once in exSID_init()).
  * @param exsid exsid handle
- * @return version information as described above.
+ * @return version information as described above, or 0xFFFF if error.
  */
 uint16_t exSID_hwversion(void * const exsid)
 {
 	struct _exsid * const xs = exsid;
 
 	if (!xs)
-		return -1;
+		return 0xFFFF;
 
 	return xs->hwvers;
 }
@@ -800,14 +820,15 @@ static void xSlongdelay(struct _exsid * const xs, uint_fast32_t cycles)
  * while leaving enough lead time for an I/O operation.
  * @param exsid exsid handle
  * @param cycles how many SID clocks to loop for.
+ * @return 0 on success, -1 on error and 1 if the requested number of cycles is smaller than the feasible delay
  */
-void exSID_delay(void * const exsid, uint_fast32_t cycles)
+int exSID_delay(void * const exsid, uint_fast32_t cycles)
 {
 	struct _exsid * const xs = exsid;
 	uint_fast32_t delay;
 
 	if (unlikely(!xs))
-		return;
+		return -1;
 
 	xs->clkdrift += cycles;
 #ifdef	DEBUG
@@ -815,7 +836,7 @@ void exSID_delay(void * const exsid, uint_fast32_t cycles)
 #endif
 
 	if (unlikely(xs->clkdrift <= xs->xSconsts->write_cycles))	// never delay for less than a full write would need
-		return;	// too short
+		return 1;	// too short
 
 	delay = xs->clkdrift - xs->xSconsts->write_cycles;
 
@@ -830,6 +851,8 @@ void exSID_delay(void * const exsid, uint_fast32_t cycles)
 		default:
 			xSdelay(xs, delay);
 	}
+
+	return 0;
 }
 
 /**
@@ -849,24 +872,27 @@ static inline void _exSID_write(struct _exsid * const xs, uint_least8_t addr, ui
  * Timed write routine, attempts cycle-accurate writes.
  * This function will be cycle-accurate provided that no two consecutive reads or writes
  * are less than write_cycles apart and the leftover delay is <= max_adj SID clock cycles.
+ * @note this function accepts writes to invalid addresses (> 0x18). If DEBUG is enabled
+ * it will not pass them to the hardware and return 1. Elapsed SID cycles will still be accounted for.
  * @param exsid exsid handle
  * @param cycles how many SID clocks to wait before the actual data write.
  * @param addr target address.
  * @param data data to write at that address.
+ * @return -1 if error, 0 on success
  */
-void exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t addr, uint8_t data)
+int exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t addr, uint8_t data)
 {
 	struct _exsid * const xs = exsid;
 	int adj;
 
 	if (unlikely(!xs))
-		return;
+		return -1;
 
 #ifdef	DEBUG
 	if (unlikely(addr > 0x18)) {
 		xsdbg("Invalid write: %.2" PRIxLEAST8 "\n", addr);
 		exSID_delay(xs, cycles);
-		return;
+		return 1;
 	}
 #endif
 
@@ -908,6 +934,8 @@ void exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t add
 
 	//xsdbg("delay: %d, clkdrift: %d\n", cycles, xs->clkdrift);
 	_exSID_write(xs, addr, data, 0);
+
+	return 0;
 }
 
 /**
@@ -931,6 +959,9 @@ void exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t add
  * @warning this function is only valid if EXSID_THREADED is not defined. If it
  * is called when EXSID_THREADED is defined, no read will be performed, however
  * the requested cycles will still be clocked.
+ * @note this function accepts reads from invalid addresses (addr < 0x19 or addr > 0x1c).
+ * If DEBUG is enabled it will not pass them to the hardware and return 1. Elapsed SID
+ * cycles will still be accounted for.
  * @note The actual time the read will take to complete depends
  * on the USB bus activity and settings. It *should* complete in XSC_USBLAT ms, but
  * not less, meaning that read operations are bound to introduce timing inaccuracy.
@@ -939,23 +970,23 @@ void exSID_clkdwrite(void * const exsid, uint_fast32_t cycles, uint_least8_t add
  * @param exsid exsid handle
  * @param cycles how many SID clocks to wait before the actual data read.
  * @param addr target address.
- * @return data read from address.
+ * @param data pointer to store data read from address.
+ * @return -1 if error, 0 on success
  */
-uint8_t exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t addr)
+int exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t addr, uint8_t * data)
 {
 	struct _exsid * const xs = exsid;
 #ifndef	EXSID_THREADED
-	unsigned char data;
 	int adj;
 
-	if (unlikely(!xs))
-		return 0xFF;
+	if (unlikely(!xs || !data))
+		return -1;
 
 #ifdef	DEBUG
 	if (unlikely((addr < 0x19) || (addr > 0x1C))) {
 		xsdbg("Invalid read: %.2" PRIxLEAST8 "\n", addr);
 		exSID_delay(xs, cycles);
-		return 0xFF;
+		return 1;
 	}
 #endif
 
@@ -996,10 +1027,10 @@ uint8_t exSID_clkdread(void * const exsid, uint_fast32_t cycles, uint_least8_t a
 
 	//xsdbg("delay: %d, clkdrift: %d\n", cycles, clkdrift);
 	xSoutb(xs, addr, 1);
-	xSread(xs, &data, 1);		// blocking
-	return data;
+	xSread(xs, data, 1);		// blocking
+	return 0;
 #else	// !EXSID_THREADED
 	exSID_delay(xs, cycles);
-	return 0xFF;
+	return -1;
 #endif
 }
