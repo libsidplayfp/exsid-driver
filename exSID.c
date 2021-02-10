@@ -36,10 +36,8 @@
 #include <time.h>
 
 #ifdef	EXSID_THREADED
- #if defined(HAVE_THREADS_H)	// Native C11 threads support
-  #include <threads.h>
- #elif defined(HAVE_PTHREAD_H)	// Trivial C11 over pthreads support
-  #include "c11threads.h"
+ #if defined(HAVE_PTHREAD_H)
+  #include <pthread.h>
  #else
   #error "No thread model available"
  #endif
@@ -132,12 +130,12 @@ struct _exsid {
 
 #ifdef	EXSID_THREADED
 	// Variables for flip buffering
-	mtx_t flip_mtx;
-	cnd_t backbuf_full_cnd, backbuf_avail_cnd;
+	pthread_mutex_t flip_mtx;
+	pthread_cond_t backbuf_full_cnd, backbuf_avail_cnd;
 	unsigned char * restrict frontbuf;	///< front buffer
 	_Bool backbuf_ready;			///< signals back buffer is ready to be flipped
 	int postdelay;				///< post delay applied after writing frontbuf to device, before the next write is attempted
-	thrd_t thread_output;
+	pthread_t thread_output;
 #endif	// EXSID_THREADED
 
 	uint16_t hwvers;			///< hardware version
@@ -252,7 +250,7 @@ static void xSread(struct _exsid * const xs, unsigned char * buff, int size)
  * @param arg exsid handle
  * @return DOES NOT RETURN, exits when xs->postdelay is negative.
  */
-static int _exSID_thread_output(void * arg)
+static void * _exSID_thread_output(void * arg)
 {
 	struct _exsid * const xs = arg;
 	unsigned char * bufptr;
@@ -260,11 +258,11 @@ static int _exSID_thread_output(void * arg)
 
 	xsdbg("thread started\n");
 	while (1) {
-		mtx_lock(&xs->flip_mtx);
+		pthread_mutex_lock(&xs->flip_mtx);
 
 		// wait for backbuf full
 		while (!xs->backbuf_ready)
-			cnd_wait(&xs->backbuf_full_cnd, &xs->flip_mtx);
+			pthread_cond_wait(&xs->backbuf_full_cnd, &xs->flip_mtx);
 
 		// Keep the critical section fast and short:
 		delay = xs->postdelay;			// record postdelay
@@ -276,9 +274,9 @@ static int _exSID_thread_output(void * arg)
 		xs->backbuf_ready = 0;
 
 		// signal we're done and free mutex
-		cnd_signal(&xs->backbuf_avail_cnd);
+		pthread_cond_signal(&xs->backbuf_avail_cnd);
 
-		mtx_unlock(&xs->flip_mtx);
+		pthread_mutex_unlock(&xs->flip_mtx);
 
 		// this blocks outside of mutex held
 		xSwrite(xs, xs->frontbuf, frontbuf_idx);
@@ -286,13 +284,12 @@ static int _exSID_thread_output(void * arg)
 		if (unlikely(delay)) {
 			if (unlikely(delay < 0)) {	// exit condition
 				xsdbg("thread exiting!\n");
-				thrd_exit(0);
+				pthread_exit(NULL);
 			}
 			else if (XS_MODEL_STD == xs->cst->model)
 				_xSusleep(delay);
 		}
 	}
-	return 0;	// make the compiler happy
 }
 #endif	// EXSID_THREADED
 
@@ -313,19 +310,19 @@ static void xSoutb(struct _exsid * const xs, uint8_t byte, int flush)
 
 #ifdef	EXSID_THREADED
 	// buffer dance
-	mtx_lock(&xs->flip_mtx);
+	pthread_mutex_lock(&xs->flip_mtx);
 
 	xs->postdelay = flush;
 
 	// signal backbuff full
 	xs->backbuf_ready = 1;
-	cnd_signal(&xs->backbuf_full_cnd);
+	pthread_cond_signal(&xs->backbuf_full_cnd);
 
 	// wait for buffer flipped
 	while (xs->backbuf_idx)
-		cnd_wait(&xs->backbuf_avail_cnd, &xs->flip_mtx);
+		pthread_cond_wait(&xs->backbuf_avail_cnd, &xs->flip_mtx);
 
-	mtx_unlock(&xs->flip_mtx);
+	pthread_mutex_unlock(&xs->flip_mtx);
 #else	// unthreaded
 	xSwrite(xs, xs->backbuf, xs->backbuf_idx);
 	xs->backbuf_idx = 0;
@@ -460,10 +457,10 @@ int exSID_init(void * const exsid)
 		return -1;
 	}
 
-	ret = mtx_init(&xs->flip_mtx, mtx_plain);
-	ret |= cnd_init(&xs->backbuf_avail_cnd);
-	ret |= cnd_init(&xs->backbuf_full_cnd);
-	ret |= thrd_create(&xs->thread_output, _exSID_thread_output, xs);
+	ret = pthread_mutex_init(&xs->flip_mtx, NULL);
+	ret |= pthread_cond_init(&xs->backbuf_avail_cnd, NULL);
+	ret |= pthread_cond_init(&xs->backbuf_full_cnd, NULL);
+	ret |= pthread_create(&xs->thread_output, NULL, _exSID_thread_output, xs);
 	if (ret) {
 		xserror(xs, "Thread setup failed");
 		return -1;
@@ -498,10 +495,10 @@ int exSID_exit(void * const exsid)
 
 #ifdef	EXSID_THREADED
 		xSoutb(xs, XS_AD_IOCTD1, -1);	// signal end of thread
-		thrd_join(xs->thread_output, NULL);
-		cnd_destroy(&xs->backbuf_full_cnd);
-		cnd_destroy(&xs->backbuf_avail_cnd);
-		mtx_destroy(&xs->flip_mtx);
+		pthread_join(xs->thread_output, NULL);
+		pthread_cond_destroy(&xs->backbuf_full_cnd);
+		pthread_cond_destroy(&xs->backbuf_avail_cnd);
+		pthread_mutex_destroy(&xs->flip_mtx);
 		if (xs->frontbuf)
 			free(xs->frontbuf);
 		xs->frontbuf = NULL;
