@@ -256,6 +256,10 @@ static void * _exSID_thread_output(void * arg)
 	unsigned char * bufptr;
 	int frontbuf_idx, delay;
 
+#ifdef _GNU_SOURCE
+	pthread_setname_np(pthread_self(), "output");
+#endif
+
 	xsdbg("thread started\n");
 	while (1) {
 		pthread_mutex_lock(&xs->flip_mtx);
