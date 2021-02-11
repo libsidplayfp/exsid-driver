@@ -1,3 +1,6 @@
+2.1
+	* Switch to plain pthreads for multi-threaded support
+
 2.0
 	* API change, ABI not backward compatible
 	* Remove all static variables, switch to dynamic allocation

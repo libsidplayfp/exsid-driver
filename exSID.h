@@ -20,7 +20,7 @@ extern "C" {
 #include <stdint.h>
 
 #define EXSID_MAJOR_VERSION	2
-#define EXSID_MINOR_VERSION	0
+#define EXSID_MINOR_VERSION	1
 #define EXSID_REVISION		0
 
 #define EXSID_VERSION		_xxstr(EXSID_MAJOR_VERSION) "." _xxstr(EXSID_MINOR_VERSION) "." _xxstr(EXSID_REVISION)

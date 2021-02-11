@@ -10,7 +10,7 @@
  * exSID/exSID+ USB I/O library
  * @author Thibaut VARENE
  * @date 2015-2018,2021
- * @version 2.0
+ * @version 2.1
  *
  * This driver will control the first exSID device available.
  * All public API functions are only valid after a successful call to exSID_init().

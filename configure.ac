@@ -1,4 +1,4 @@
-AC_INIT([libexsid], [2.0], [], [], [https://github.com/libsidplayfp/exsid-driver])
+AC_INIT([libexsid], [2.1], [], [], [https://github.com/libsidplayfp/exsid-driver])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([exSID.c])
