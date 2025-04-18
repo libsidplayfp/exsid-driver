@@ -2,7 +2,7 @@ AC_INIT([libexsid], [2.1], [], [], [https://github.com/libsidplayfp/exsid-driver
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([exSID.c])
-AC_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADERS([config.h])
 AM_INIT_AUTOMAKE
 
 dnl Initialize libtool.
@@ -13,7 +13,6 @@ PKG_PROG_PKG_CONFIG
 AC_CANONICAL_HOST
 
 AC_PROG_CC
-AC_PROG_CC_STDC
 AC_C_RESTRICT
 AC_C_INLINE
 
