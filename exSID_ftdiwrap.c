@@ -252,7 +252,7 @@ int xSfw_dlopen()
 dlfail:
 	xsdbg("dlsym error: %s", dlerrorstr);
 	_xSfw_free_errstr(dlerrorstr);
-	xSfw_dlclose(dlhandle);
+	xSfw_dlclose();
 	return -1;
 }
 
