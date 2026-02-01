@@ -557,7 +557,9 @@ int exSID_reset(void * const exsid)
 
 	xsdbg("reset\n");
 
-	xSoutb(xs, XS_AD_IOCTRS, 100);	// this will stall
+	// This will stall and sleep for 50ms
+	// Reset needs some time to complete
+	xSoutb(xs, XS_AD_IOCTRS, 50000);
 
 	xs->clkdrift = 0;
 
